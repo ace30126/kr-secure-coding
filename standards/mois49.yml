@@ -1,0 +1,90 @@
+# 행정안전부 「소프트웨어 보안약점 진단가이드」(2021) 구현단계 보안약점 49개 항목
+# 출처: KISA https://www.kisa.or.kr/2060204/form?postSeq=9
+# TODO: 항목 명칭·순서를 원문 PDF와 최종 대조할 것 (현재는 2021판 목차 기준 정리본)
+#
+# js: JS/TS 자동 점검 범위
+#   auto    - 규칙으로 자동 탐지
+#   partial - 일부 패턴만 자동 탐지, 나머지는 사람이 확인
+#   na      - JS/TS 런타임 특성상 성립하지 않음(메모리 관리 등)
+#   manual  - 코드만으로 판단 불가, 문답 체크리스트로 확인
+# cwe: 외부 규칙(Semgrep 레지스트리 등)의 CWE 메타데이터를 이 항목으로 묶는 데 쓴다
+
+categories:
+  IV: 입력데이터 검증 및 표현
+  SF: 보안기능
+  TS: 시간 및 상태
+  EH: 에러처리
+  CE: 코드오류
+  EN: 캡슐화
+  AM: API 오용
+
+items:
+  # ── 입력데이터 검증 및 표현 (17) ──
+  - {id: IV-01, name: SQL 삽입, cwe: [89, 564, 943], js: auto}
+  - {id: IV-02, name: 코드 삽입, cwe: [94, 95, 1336], js: auto}
+  - {id: IV-03, name: 경로 조작 및 자원 삽입, cwe: [22, 23, 36, 73, 99], js: auto}
+  - {id: IV-04, name: 크로스사이트 스크립트, cwe: [79, 80], js: auto}
+  - {id: IV-05, name: 운영체제 명령어 삽입, cwe: [77, 78], js: auto}
+  - {id: IV-06, name: 위험한 형식 파일 업로드, cwe: [434], js: partial}
+  - {id: IV-07, name: 신뢰되지 않은 URL주소로 자동접속 연결, cwe: [601], js: auto}
+  - {id: IV-08, name: 부적절한 XML 외부개체 참조, cwe: [611, 776], js: auto}
+  - {id: IV-09, name: XML 삽입, cwe: [91, 643, 652], js: partial}
+  - {id: IV-10, name: LDAP 삽입, cwe: [90], js: partial}
+  - {id: IV-11, name: 크로스사이트 요청 위조, cwe: [352], js: partial}
+  - {id: IV-12, name: 서버사이드 요청 위조, cwe: [918], js: auto}
+  - {id: IV-13, name: HTTP 응답분할, cwe: [113], js: partial}
+  - {id: IV-14, name: 정수형 오버플로우, cwe: [190], js: na, note: "JS Number는 정수 랩어라운드가 없다. BigInt·버퍼 연산은 사람이 확인"}
+  - {id: IV-15, name: 보안기능 결정에 사용되는 부적절한 입력값, cwe: [807, 565], js: partial}
+  - {id: IV-16, name: 메모리 버퍼 오버플로우, cwe: [119, 120, 121, 122, 787], js: na, note: "관리형 메모리 언어"}
+  - {id: IV-17, name: 포맷 스트링 삽입, cwe: [134], js: na, note: "C 계열 printf 계열 문제. JS 템플릿 문자열은 해당 없음"}
+
+  # ── 보안기능 (16) ──
+  - {id: SF-01, name: 적절한 인증 없는 중요 기능 허용, cwe: [306], js: partial}
+  - {id: SF-02, name: 부적절한 인가, cwe: [285, 639, 862, 863], js: partial}
+  - {id: SF-03, name: 중요한 자원에 대한 잘못된 권한 설정, cwe: [732, 276], js: partial}
+  - {id: SF-04, name: 취약한 암호화 알고리즘 사용, cwe: [327, 328], js: auto}
+  - {id: SF-05, name: 암호화되지 않은 중요정보, cwe: [311, 312, 319], js: partial}
+  - {id: SF-06, name: 하드코드된 중요정보, cwe: [259, 321, 798], js: auto}
+  - {id: SF-07, name: 충분하지 않은 키 길이 사용, cwe: [326], js: auto}
+  - {id: SF-08, name: 적절하지 않은 난수 값 사용, cwe: [330, 338], js: auto}
+  - {id: SF-09, name: 취약한 비밀번호 허용, cwe: [521], js: manual}
+  - {id: SF-10, name: 부적절한 전자서명 확인, cwe: [347], js: auto}
+  - {id: SF-11, name: 부적절한 인증서 유효성 검증, cwe: [295], js: auto}
+  - {id: SF-12, name: 쿠키를 통한 정보노출, cwe: [315, 539, 614, 1004], js: auto}
+  - {id: SF-13, name: 주석문 안에 포함된 시스템 주요정보, cwe: [615], js: partial}
+  - {id: SF-14, name: 솔트 없이 일방향 해쉬 함수 사용, cwe: [759, 916], js: auto}
+  - {id: SF-15, name: 무결성 검사 없는 코드 다운로드, cwe: [494, 829], js: partial}
+  - {id: SF-16, name: 반복된 인증시도 제한 기능 부재, cwe: [307], js: manual}
+
+  # ── 시간 및 상태 (2) ──
+  - {id: TS-01, name: "경쟁조건: 검사시점과 사용시점(TOCTOU)", cwe: [367], js: partial}
+  - {id: TS-02, name: 종료되지 않는 반복문 또는 재귀 함수, cwe: [674, 835, 1333], js: partial, note: "ReDoS(정규식 폭주) 포함"}
+
+  # ── 에러처리 (3) ──
+  - {id: EH-01, name: 오류 메시지 정보노출, cwe: [209, 497], js: auto}
+  - {id: EH-02, name: 오류상황 대응 부재, cwe: [390], js: auto}
+  - {id: EH-03, name: 부적절한 예외 처리, cwe: [396, 754], js: partial}
+
+  # ── 코드오류 (5) ──
+  - {id: CE-01, name: Null Pointer 역참조, cwe: [476], js: na, note: "TypeScript strictNullChecks로 대체 점검"}
+  - {id: CE-02, name: 부적절한 자원 해제, cwe: [404, 772], js: partial}
+  - {id: CE-03, name: 해제된 자원 사용, cwe: [416], js: na}
+  - {id: CE-04, name: 초기화되지 않은 변수 사용, cwe: [457], js: na, note: "TypeScript 컴파일러가 점검"}
+  - {id: CE-05, name: 신뢰할 수 없는 데이터의 역직렬화, cwe: [502], js: auto}
+
+  # ── 캡슐화 (4) ──
+  - {id: EN-01, name: 잘못된 세션에 의한 데이터 정보노출, cwe: [488], js: partial}
+  - {id: EN-02, name: 제거되지 않고 남은 디버그 코드, cwe: [215, 489], js: auto}
+  - {id: EN-03, name: Public 메소드로부터 반환된 Private 배열, cwe: [495], js: na}
+  - {id: EN-04, name: Private 배열에 Public 데이터 할당, cwe: [496], js: na}
+
+  # ── API 오용 (2) ──
+  - {id: AM-01, name: DNS lookup에 의존한 보안결정, cwe: [350], js: partial}
+  - {id: AM-02, name: 취약한 API 사용, cwe: [477, 676, 1104], js: auto, note: "취약 버전 의존성(osv-scanner) 포함"}
+
+# 49개에 없지만 바이브코딩 SaaS에서 사고가 잦은 축. 보고서에 별도 절로 싣는다
+extras:
+  - {id: VC-01, name: 클라이언트 번들로 노출되는 비밀키, cwe: [200, 798]}
+  - {id: VC-02, name: "BaaS 접근통제 미설정(Supabase RLS·Firebase 규칙)", cwe: [284, 862]}
+  - {id: VC-03, name: 과도하게 열린 CORS, cwe: [942]}
+  - {id: VC-04, name: 프로토타입 오염, cwe: [1321]}

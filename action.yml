@@ -1,0 +1,134 @@
+name: kr-secure-coding
+description: 행안부 SW 보안약점 49개 항목 기준 JS/TS 시큐어코딩 점검 + 바이브코딩 SaaS 특화 점검, 한국어 보고서와 AI 수정 프롬프트
+author: ace30126
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  path:
+    description: 점검할 디렉터리
+    default: "."
+  fail-on:
+    description: 이 위험도 이상이 있으면 워크플로를 실패 처리 (high / medium / low / never)
+    default: never
+  upload-sarif:
+    description: "Security 탭에 SARIF 업로드 (auto: 공개 저장소만 / true / false). 비공개 저장소는 GitHub Code Security 가 켜져 있어야 한다"
+    default: auto
+  report-password:
+    description: 상세 보고서(report.html)를 이 비밀번호로 암호화. 공개 저장소에서 아티팩트를 남기려면 필요
+    default: ""
+  public-report:
+    description: 공개 저장소에서도 암호화 없이 아티팩트를 남긴다 (권장하지 않음)
+    default: "false"
+  scan-git-history:
+    description: 비밀값 검사를 git 기록 전체로 확장 (actions/checkout 에 fetch-depth 0 필요)
+    default: "false"
+  semgrep-extra-configs:
+    description: 추가로 돌릴 Semgrep 설정(공백 구분, 예 "p/javascript p/nextjs"). 결과의 CWE를 행안부 항목으로 자동 매핑
+    default: ""
+
+outputs:
+  high:
+    description: 코드·설정 높음 건수
+    value: ${{ steps.report.outputs.high }}
+  medium:
+    description: 코드·설정 중간 건수
+    value: ${{ steps.report.outputs.medium }}
+  low:
+    description: 코드·설정 낮음 건수
+    value: ${{ steps.report.outputs.low }}
+  deps:
+    description: 취약한 의존성 패키지 수
+    value: ${{ steps.report.outputs.deps }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: 도구 설치 (버전 고정 + 체크섬 검증)
+      shell: bash
+      env:
+        GITLEAKS_VERSION: 8.30.1
+        OSV_VERSION: 2.7.0
+        SEMGREP_VERSION: 1.181.0
+      run: |
+        set -euo pipefail
+        python -m pip install -q "semgrep==${SEMGREP_VERSION}" pyyaml cryptography
+        BIN="$RUNNER_TEMP/ksc-bin"; mkdir -p "$BIN"; cd "$BIN"
+        base=https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}
+        curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        curl -sSfLO "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+        grep " gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -
+        tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+        base=https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}
+        curl -sSfLO "$base/osv-scanner_linux_amd64"
+        curl -sSfLO "$base/osv-scanner_SHA256SUMS"
+        grep " osv-scanner_linux_amd64$" osv-scanner_SHA256SUMS | sha256sum -c -
+        chmod +x gitleaks osv-scanner_linux_amd64
+        echo "$BIN" >> "$GITHUB_PATH"
+
+    - name: 스캔
+      shell: bash
+      env:
+        TARGET: ${{ inputs.path }}
+        EXTRA: ${{ inputs.semgrep-extra-configs }}
+        HISTORY: ${{ inputs.scan-git-history }}
+      run: |
+        set -uo pipefail
+        OUT="$RUNNER_TEMP/ksc"; mkdir -p "$OUT"
+        cfg=(--config "$GITHUB_ACTION_PATH/rules")
+        for c in $EXTRA; do cfg+=(--config "$c"); done
+        semgrep scan "${cfg[@]}" --metrics=off --json -q -o "$OUT/semgrep.json" "$TARGET" || echo "::warning::semgrep 실행 중 오류가 있었습니다"
+        # --redact: 비밀값 원문이 결과 파일에도 남지 않게 한다
+        if [ "$HISTORY" = "true" ]; then
+          gitleaks git "$TARGET" --redact --no-banner -f json -r "$OUT/gitleaks.json" --exit-code 0 >/dev/null 2>&1
+        else
+          gitleaks dir "$TARGET" --redact --no-banner -f json -r "$OUT/gitleaks.json" --exit-code 0 >/dev/null 2>&1
+        fi
+        osv-scanner_linux_amd64 scan source -r "$TARGET" --format json > "$OUT/osv.json" 2>/dev/null || true
+
+    - name: 보고서 생성
+      id: report
+      shell: bash
+      env:
+        TARGET: ${{ inputs.path }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        KSC_REPORT_PASSWORD: ${{ inputs.report-password }}
+        PYTHONPATH: ${{ github.action_path }}
+      run: |
+        OUT="$RUNNER_TEMP/ksc"
+        set +e
+        python -m ksc --root "$TARGET" --out "$OUT/report" \
+          --semgrep "$OUT/semgrep.json" --gitleaks "$OUT/gitleaks.json" --osv "$OUT/osv.json" --fail-on "$FAIL_ON"
+        echo "exit=$?" >> "$GITHUB_OUTPUT"
+        # 공개 로그·요약에는 개수만 남긴다
+        cat "$OUT/report/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Security 탭 업로드
+      if: inputs.upload-sarif == 'true' || (inputs.upload-sarif == 'auto' && github.event.repository.private == false)
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ runner.temp }}/ksc/report/results.sarif
+        category: kr-secure-coding
+
+    - name: 상세 보고서 아티팩트
+      if: github.event.repository.private == true || steps.report.outputs.encrypted == 'true' || inputs.public-report == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: kr-secure-coding-report
+        path: ${{ runner.temp }}/ksc/report/report.html
+        retention-days: 14
+
+    - name: 공개 저장소 안내
+      if: github.event.repository.private == false && steps.report.outputs.encrypted != 'true' && inputs.public-report != 'true'
+      shell: bash
+      run: echo "::notice::공개 저장소라 상세 보고서 아티팩트는 남기지 않았습니다(누구나 내려받을 수 있음). Security 탭을 보거나 report-password 를 설정하세요."
+
+    - name: 결과 판정
+      if: steps.report.outputs.exit != '0'
+      shell: bash
+      run: exit 1

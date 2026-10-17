@@ -1,0 +1,38 @@
+# 저장소 안의 취약 샘플로 Action 자신을 검사한다
+name: selftest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.12" }
+      - run: pip install -q semgrep==1.181.0 pyyaml cryptography
+      - run: python -m unittest discover -s tests -v
+
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: ksc
+        uses: ./
+        with:
+          path: examples/vuln-next-supabase
+          report-password: ${{ secrets.KSC_REPORT_PASSWORD }}
+      - name: 샘플에서 기대한 만큼 잡았는지
+        run: |
+          echo "high=${{ steps.ksc.outputs.high }} medium=${{ steps.ksc.outputs.medium }} deps=${{ steps.ksc.outputs.deps }}"
+          test "${{ steps.ksc.outputs.high }}" -ge 10
+          test "${{ steps.ksc.outputs.deps }}" -ge 3

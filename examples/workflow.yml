@@ -1,0 +1,28 @@
+# 사용자 저장소의 .github/workflows/kr-secure-coding.yml 에 복사해서 쓴다
+name: 보안 점검
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * 1"   # 매주 월요일 09:00(KST)
+  workflow_dispatch:
+  # PR 마다 돌리려면 아래 주석을 푼다.
+  # 주의: 공개 저장소에서는 PR 주석(annotation)을 누구나 볼 수 있다
+  # pull_request:
+
+permissions:
+  contents: read
+  security-events: write   # Security 탭 업로드
+  actions: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ace30126/kr-secure-coding@v1
+        with:
+          # 공개 저장소에서 상세 보고서를 받으려면 저장소 시크릿에 비밀번호를 넣는다
+          report-password: ${{ secrets.KSC_REPORT_PASSWORD }}
+          fail-on: never

@@ -1,0 +1,9 @@
+{
+  "name": "vuln-next-supabase",
+  "dependencies": {
+    "next": "13.4.0",
+    "jsonwebtoken": "8.5.1",
+    "node-serialize": "0.0.4",
+    "axios": "0.21.0"
+  }
+}

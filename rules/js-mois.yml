@@ -1,0 +1,401 @@
+# kr-secure-coding JS/TS 규칙 - metadata.mois 가 standards/mois49.yml 의 항목 ID
+# confidence: HIGH=확실 / MEDIUM=의심(사람 확인 필요)
+rules:
+  # ─────────── 입력데이터 검증 및 표현 ───────────
+  - id: ksc-sql-string-build
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: 외부 값이 들어간 문자열로 SQL을 만들어 실행합니다. 공격자가 쿼리를 바꿀 수 있습니다.
+    metadata: {mois: IV-01, cwe: "CWE-89", confidence: MEDIUM}
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.query($Q, ...)
+              - pattern: $DB.execute($Q, ...)
+              - pattern: $DB.raw($Q, ...)
+          - metavariable-pattern:
+              metavariable: $Q
+              pattern-either:
+                - pattern: '`...${$X}...`'
+                - pattern: '"..." + $X'
+                - pattern: '$X + "..."'
+          - metavariable-regex:
+              metavariable: $Q
+              regex: (?is).*\b(select|insert|update|delete|where|from)\b.*
+      - pattern: $P.$queryRawUnsafe(...)
+      - pattern: $P.$executeRawUnsafe(...)
+      - pattern: sql.unsafe(...)
+
+  - id: ksc-code-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: 문자열을 코드로 실행합니다(eval·new Function). 외부 값이 섞이면 서버나 브라우저에서 임의 코드가 돌아갑니다.
+    metadata: {mois: IV-02, cwe: "CWE-95", confidence: HIGH}
+    pattern-either:
+      - patterns:
+          - pattern: eval($X)
+          - pattern-not: eval("...")
+      - patterns:
+          - pattern: new Function(..., $X)
+          - pattern-not: new Function(..., "...")
+      - patterns:
+          - pattern-either:
+              - pattern: setTimeout($X, ...)
+              - pattern: setInterval($X, ...)
+          - pattern-not: $F("...", ...)
+          - metavariable-pattern:
+              metavariable: $X
+              patterns:
+                - pattern-not: '(...) => {...}'
+                - pattern-not: 'function (...) {...}'
+                - pattern-not: "..."
+              # 식별자(함수 참조)도 흔하므로 문자열 결합·템플릿만 잡는다
+          - metavariable-pattern:
+              metavariable: $X
+              pattern-either:
+                - pattern: '`...${...}...`'
+                - pattern: '"..." + $Y'
+
+  - id: ksc-taint-request-to-sink
+    languages: [javascript, typescript]
+    severity: ERROR
+    mode: taint
+    message: 요청 값(쿼리·본문·경로 파라미터)이 검증 없이 파일 경로로 쓰입니다. ../ 로 서버의 다른 파일을 읽을 수 있습니다.
+    metadata: {mois: IV-03, cwe: "CWE-22", confidence: MEDIUM}
+    pattern-sources:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.headers
+      - pattern: $SP.get(...)
+      - pattern: await $REQ.json()
+      - pattern: await $REQ.formData()
+    pattern-sinks:
+      - pattern-either:
+          - pattern: fs.$F($PATH, ...)
+          - pattern: $FS.readFile($PATH, ...)
+          - pattern: $FS.readFileSync($PATH, ...)
+          - pattern: $FS.createReadStream($PATH, ...)
+          - pattern: $FS.writeFile($PATH, ...)
+          - pattern: $FS.unlink($PATH, ...)
+          - pattern: $RES.sendFile($PATH, ...)
+    pattern-sanitizers:
+      - pattern: path.basename(...)
+
+  - id: ksc-xss-dangerously-set
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: dangerouslySetInnerHTML에 변수를 넣습니다. 사용자 입력이 섞이면 스크립트가 실행됩니다. DOMPurify로 정화하세요.
+    metadata: {mois: IV-04, cwe: "CWE-79", confidence: MEDIUM}
+    patterns:
+      - pattern: '<$EL dangerouslySetInnerHTML={{__html: $X}} />'
+      - pattern-not: '<$EL dangerouslySetInnerHTML={{__html: "..."}} />'
+      - pattern-not: '<$EL dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(...)}} />'
+      - pattern-not: '<$EL dangerouslySetInnerHTML={{__html: sanitize(...)}} />'
+  - id: ksc-xss-dom-sink
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: innerHTML·document.write에 변수를 넣습니다. 사용자 입력이 섞이면 스크립트가 실행됩니다.
+    metadata: {mois: IV-04, cwe: "CWE-79", confidence: MEDIUM}
+    pattern-either:
+      - patterns:
+          - pattern: $E.innerHTML = $X
+          - pattern-not: $E.innerHTML = "..."
+      - patterns:
+          - pattern: $E.outerHTML = $X
+          - pattern-not: $E.outerHTML = "..."
+      - patterns:
+          - pattern: document.write($X)
+          - pattern-not: document.write("...")
+
+  - id: ksc-os-command
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: 변수가 섞인 문자열로 셸 명령을 실행합니다. 외부 값이 들어가면 서버에서 임의 명령이 실행됩니다. execFile에 인자 배열로 넘기세요.
+    metadata: {mois: IV-05, cwe: "CWE-78", confidence: HIGH}
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $CP.exec($CMD, ...)
+              - pattern: $CP.execSync($CMD, ...)
+              - pattern: exec($CMD, ...)
+              - pattern: execSync($CMD, ...)
+          - pattern-not: $F("...", ...)
+          - pattern-not: $O.$F("...", ...)
+      - pattern: '$CP.spawn($CMD, $ARGS, {..., shell: true, ...})'
+
+  - id: ksc-open-redirect
+    languages: [javascript, typescript]
+    severity: WARNING
+    mode: taint
+    message: 요청 값을 그대로 리다이렉트 주소로 씁니다. 피싱 사이트로 사용자를 보낼 수 있습니다. 허용 경로 목록과 비교하세요.
+    metadata: {mois: IV-07, cwe: "CWE-601", confidence: MEDIUM}
+    pattern-sources:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.headers
+      - pattern: $SP.get(...)
+      - pattern: await $REQ.json()
+      - pattern: await $REQ.formData()
+    pattern-sinks:
+      - pattern-either:
+          - pattern: $RES.redirect($URL, ...)
+          - pattern: NextResponse.redirect($URL, ...)
+          - pattern: redirect($URL)
+          - pattern: window.location.href = $URL
+          - pattern: window.location.assign($URL)
+
+  - id: ksc-xxe
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: XML 파서에서 외부 엔티티(noent)를 켰습니다. 서버 파일이 읽히거나 내부망 요청이 나갈 수 있습니다.
+    metadata: {mois: IV-08, cwe: "CWE-611", confidence: HIGH}
+    pattern-either:
+      - pattern: '$X.parseXml($D, {..., noent: true, ...})'
+      - pattern: '$X.parseXmlString($D, {..., noent: true, ...})'
+
+  - id: ksc-ssrf
+    languages: [javascript, typescript]
+    severity: ERROR
+    mode: taint
+    message: 요청 값을 그대로 서버의 외부 요청 주소로 씁니다(SSRF). 클라우드 메타데이터나 내부 서비스로 요청이 나갈 수 있습니다.
+    metadata: {mois: IV-12, cwe: "CWE-918", confidence: MEDIUM}
+    pattern-sources:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.headers
+      - pattern: $SP.get(...)
+      - pattern: await $REQ.json()
+      - pattern: await $REQ.formData()
+    pattern-sinks:
+      - pattern-either:
+          - pattern: fetch($URL, ...)
+          - pattern: axios($URL, ...)
+          - pattern: axios.$M($URL, ...)
+          - pattern: got($URL, ...)
+          - pattern: http.get($URL, ...)
+          - pattern: https.get($URL, ...)
+
+  - id: ksc-header-injection
+    languages: [javascript, typescript]
+    severity: WARNING
+    mode: taint
+    message: 요청 값을 응답 헤더에 그대로 넣습니다. 줄바꿈 문자가 섞이면 응답이 쪼개질 수 있습니다.
+    metadata: {mois: IV-13, cwe: "CWE-113", confidence: MEDIUM}
+    pattern-sources:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.headers
+      - pattern: $SP.get(...)
+      - pattern: await $REQ.json()
+      - pattern: await $REQ.formData()
+    pattern-sinks:
+      - pattern-either:
+          - pattern: $RES.setHeader($N, $V)
+          - pattern: $RES.set($N, $V)
+          - pattern: $H.set($N, $V)
+
+  # ─────────── 보안기능 ───────────
+  - id: ksc-weak-hash
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: MD5·SHA-1은 충돌이 알려진 해시입니다. 무결성·서명 용도라면 SHA-256 이상을 쓰세요.
+    metadata: {mois: SF-04, cwe: "CWE-328", confidence: HIGH}
+    pattern-either:
+      - pattern: $C.createHash("md5")
+      - pattern: $C.createHash("sha1")
+      - pattern: createHash("md5")
+      - pattern: createHash("sha1")
+
+  - id: ksc-weak-cipher
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: 취약한 암호 알고리즘이나 ECB 모드를 씁니다. AES-256-GCM을 쓰세요.
+    metadata: {mois: SF-04, cwe: "CWE-327", confidence: HIGH}
+    patterns:
+      - pattern-either:
+          - pattern: $C.createCipheriv($ALG, ...)
+          - pattern: createCipheriv($ALG, ...)
+          - pattern: $C.createCipher($ALG, ...)
+      - metavariable-regex:
+          metavariable: $ALG
+          regex: (?i)['"](des|des-ede|des-ede3|rc4|rc2|bf|blowfish|aes-\d+-ecb)[^'"]*['"]
+
+  - id: ksc-hardcoded-jwt-secret
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: JWT 서명 비밀키가 코드에 박혀 있습니다. 저장소를 본 사람은 누구나 토큰을 위조할 수 있습니다. 환경변수로 옮기고 키를 교체하세요.
+    metadata: {mois: SF-06, cwe: "CWE-798", confidence: HIGH}
+    pattern-either:
+      - pattern: $J.sign($P, "...", ...)
+      - pattern: $J.verify($T, "...", ...)
+      - pattern: new TextEncoder().encode("...")
+
+  - id: ksc-short-rsa-key
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: RSA 키 길이가 2048비트 미만입니다.
+    metadata: {mois: SF-07, cwe: "CWE-326", confidence: HIGH}
+    patterns:
+      - pattern: '$C.generateKeyPair$SYNC("rsa", {..., modulusLength: $N, ...}, ...)'
+      - metavariable-comparison:
+          metavariable: $N
+          comparison: $N < 2048
+
+  - id: ksc-insecure-random
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Math.random()으로 토큰·비밀번호·코드를 만듭니다. 예측 가능합니다. crypto.randomUUID()나 crypto.getRandomValues()를 쓰세요.
+    metadata: {mois: SF-08, cwe: "CWE-338", confidence: MEDIUM}
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $V = <... Math.random() ...>
+          - pattern: |
+              const $V = <... Math.random() ...>
+          - pattern: |
+              let $V = <... Math.random() ...>
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i).*(token|secret|password|passwd|otp|nonce|session|apikey|api_key|code|salt|invite|reset).*
+
+  - id: ksc-jwt-decode-no-verify
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: jwt.decode()는 서명을 검사하지 않습니다. 인증 판단에는 jwt.verify()를 쓰세요.
+    metadata: {mois: SF-10, cwe: "CWE-347", confidence: MEDIUM}
+    pattern-either:
+      - pattern: jwt.decode(...)
+      - pattern: jsonwebtoken.decode(...)
+      - pattern: '$J.verify($T, $K, {..., algorithms: [..., "none", ...], ...})'
+
+  - id: ksc-tls-verify-off
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: TLS 인증서 검증을 껐습니다. 중간자 공격에 그대로 노출됩니다.
+    metadata: {mois: SF-11, cwe: "CWE-295", confidence: HIGH}
+    pattern-either:
+      - pattern: "{..., rejectUnauthorized: false, ...}"
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+
+  - id: ksc-cookie-insecure
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: 쿠키의 httpOnly 또는 secure 옵션을 껐습니다. 세션 쿠키라면 스크립트로 탈취되거나 평문으로 전송됩니다.
+    metadata: {mois: SF-12, cwe: "CWE-1004", confidence: HIGH}
+    pattern-either:
+      - pattern: '$R.cookie($N, $V, {..., httpOnly: false, ...})'
+      - pattern: '$R.cookie($N, $V, {..., secure: false, ...})'
+      - pattern: '$C.set($N, $V, {..., httpOnly: false, ...})'
+      - pattern: '$C.set({..., httpOnly: false, ...})'
+
+  - id: ksc-unsalted-password-hash
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: 비밀번호를 솔트 없는 단순 해시로 저장합니다. 레인보우 테이블로 바로 풀립니다. bcrypt·argon2를 쓰세요.
+    metadata: {mois: SF-14, cwe: "CWE-916", confidence: MEDIUM}
+    patterns:
+      - pattern-either:
+          - pattern: $C.createHash($A).update($PW)
+          - pattern: createHash($A).update($PW)
+      - metavariable-regex:
+          metavariable: $PW
+          regex: (?i).*(password|passwd|pwd).*
+
+  # ─────────── 에러처리 ───────────
+  - id: ksc-error-leak
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: 예외의 stack을 응답으로 돌려줍니다. 파일 경로·라이브러리 버전 등 내부 정보가 노출됩니다.
+    metadata: {mois: EH-01, cwe: "CWE-209", confidence: HIGH}
+    pattern-either:
+      - pattern: '$RES.json({..., $K: $E.stack, ...})'
+      - pattern: $RES.send($E.stack)
+      - pattern: 'NextResponse.json({..., $K: $E.stack, ...}, ...)'
+      - pattern: 'Response.json({..., $K: $E.stack, ...}, ...)'
+
+  - id: ksc-empty-catch
+    languages: [javascript, typescript]
+    severity: INFO
+    message: 예외를 잡고 아무것도 하지 않습니다. 인증·결제 실패가 조용히 무시될 수 있습니다.
+    metadata: {mois: EH-02, cwe: "CWE-390", confidence: MEDIUM}
+    pattern-either:
+      - pattern: |
+          try { ... } catch ($E) {}
+      - pattern: |
+          try { ... } catch {}
+
+  # ─────────── 코드오류 ───────────
+  - id: ksc-unsafe-deserialize
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: node-serialize 등의 역직렬화는 함수까지 복원해 실행합니다. JSON.parse를 쓰세요.
+    metadata: {mois: CE-05, cwe: "CWE-502", confidence: HIGH}
+    pattern-either:
+      - pattern: $S.unserialize(...)
+      - pattern: unserialize(...)
+
+  # ─────────── 캡슐화 ───────────
+  - id: ksc-debug-leftover
+    languages: [javascript, typescript]
+    severity: INFO
+    message: 비밀번호·토큰을 콘솔에 찍습니다. 브라우저 콘솔이나 서버 로그에 남습니다.
+    metadata: {mois: EN-02, cwe: "CWE-489", confidence: MEDIUM}
+    patterns:
+      - pattern-either:
+          - pattern: console.$L(..., $X, ...)
+      - metavariable-regex:
+          metavariable: $X
+          regex: (?i).*(password|passwd|secret|token|apikey|api_key|service_?role).*
+
+  - id: ksc-debugger-statement
+    languages: [javascript, typescript]
+    severity: INFO
+    message: debugger 문이 남아 있습니다.
+    metadata: {mois: EN-02, cwe: "CWE-489", confidence: HIGH}
+    pattern: debugger;
+
+  # ─────────── 바이브코딩 SaaS 특화 ───────────
+  - id: ksc-public-env-secret
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: 비밀키로 보이는 값을 공개 환경변수(NEXT_PUBLIC_·VITE_·EXPO_PUBLIC_)로 읽습니다. 이 값은 빌드 때 브라우저 번들에 그대로 들어가 누구나 볼 수 있습니다.
+    metadata: {mois: VC-01, cwe: "CWE-200", confidence: HIGH}
+    patterns:
+      - pattern-either:
+          - pattern: process.env.$V
+          - pattern: import.meta.env.$V
+      - metavariable-regex:
+          metavariable: $V
+          regex: ^(NEXT_PUBLIC_|VITE_|EXPO_PUBLIC_|REACT_APP_).*(SECRET|SERVICE_ROLE|PRIVATE|OPENAI|ANTHROPIC|GEMINI|STRIPE_SECRET|SK_|PASSWORD|ADMIN).*$
+
+  - id: ksc-service-role-in-client
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: '"use client" 파일에서 Supabase service_role 키를 씁니다. 이 키는 RLS를 무시하는 관리자 키라 브라우저로 나가면 DB 전체가 열립니다.'
+    metadata: {mois: VC-01, cwe: "CWE-798", confidence: HIGH}
+    patterns:
+      - pattern-inside: |
+          "use client";
+          ...
+      - pattern-either:
+          - pattern: process.env.$V
+      - metavariable-regex:
+          metavariable: $V
+          regex: (?i).*service_?role.*
+
+  - id: ksc-cors-wildcard
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: CORS를 모든 출처(*)에 열었습니다. 인증이 필요한 API라면 허용 도메인을 지정하세요.
+    metadata: {mois: VC-03, cwe: "CWE-942", confidence: MEDIUM}
+    pattern-either:
+      - pattern: cors()
+      - pattern: 'cors({..., origin: "*", ...})'
+      - pattern: 'cors({..., origin: true, credentials: true, ...})'
+      - pattern: $H.setHeader("Access-Control-Allow-Origin", "*")
+      - pattern: $H.set("Access-Control-Allow-Origin", "*")
+      - pattern: '{..., "Access-Control-Allow-Origin": "*", ...}'
