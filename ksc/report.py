@@ -320,7 +320,7 @@ def encrypt_html(page: str, password: str) -> str:
     b64 = lambda b: base64.b64encode(b).decode()
     return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>보안 점검 보고서 (암호화됨)</title><style>body{{font:16px -apple-system,"Malgun Gothic",sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f7f7f5;color:#1d1d1b}}
-form{{background:#fff;padding:28px;border-radius:12px;border:1px solid #e3e2dc;max-width:360px;width:calc(100% - 32px)}}input,button{{font:inherit;width:100%;padding:10px;margin-top:10px;border-radius:8px;border:1px solid #ccc}}
+form{{background:#fff;padding:28px;border-radius:12px;border:1px solid #e3e2dc;max-width:360px;width:calc(100% - 32px)}}input,button{{box-sizing:border-box;font:inherit;width:100%;padding:10px;margin-top:10px;border-radius:8px;border:1px solid #ccc}}
 button{{background:#1d1d1b;color:#fff;border:0;cursor:pointer}}#err{{color:#c62828;font-size:.9rem}}</style></head><body>
 <form id="f"><b>보안 점검 보고서</b><p style="color:#6b6b66;font-size:.9rem">저장소 시크릿 KSC_REPORT_PASSWORD 에 넣은 비밀번호를 입력하세요.</p>
 <input id="pw" type="password" autocomplete="off" placeholder="비밀번호"><button>열기</button><p id="err"></p></form>
